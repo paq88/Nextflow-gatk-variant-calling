@@ -4,7 +4,6 @@ set -e  # Exit on error
 echo "Creating directories..."
 mkdir -p NGS
 cd NGS
-mkdir -p outdir
 mkdir -p data/fastq reference adapters
 
 echo "Downloading test FASTQ files (subset)..."
@@ -16,6 +15,9 @@ cd ../
 echo "Downloading reference genome..."
 cd reference
 wget -c https://ftp.ensembl.org/pub/release-113/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz
+echo "indexing reference this might take a while ..."
+bwa index *
+
 cd ..
 
 echo "Downloading adapter sequences..."
@@ -25,7 +27,6 @@ wget -c https://raw.githubusercontent.com/usadellab/Trimmomatic/main/adapters/Tr
 echo "Creating placeholder for polyA adapter..."
 echo ">polyA
 AAAAAAAAAAAAAAAAAAAA" > polyA.fa
-
 cat * > combined_adapters.fa
 cd ..
 
