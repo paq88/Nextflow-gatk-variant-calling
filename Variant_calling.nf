@@ -1,17 +1,19 @@
 #!/usr/bin/env nextflow
 
 // Define the working directory
-params.workDir = '/home/paq/NGS/analysis/input_data'
-params.outdir  = '/home/paq/NGS/nextflow/outdir'
-params.adapters = '/home/paq/NGS/analysis/adapters/combined_adapters.fa'
+params.workDir = '/home/paq/NGS/NGS'
+params.outdir  = '/home/paq/NGS/NGS/outdir'
 
 // Define input files (paired-end reads)
-params.reads = "${params.workDir}/*_{1,2}.fastq.gz"
 
-params.reference = '/home/paq/NGS/analysis/ref_genome/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz'
+params.reference = "${params.workDir}/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz"
+
+params.adapters = "${params.workDir}/adapters/combined_adapters.fa"
+params.reads = "${params.workDir}/data/*_{1,2}.fastq.gz"
 
 params.trimCPUs = 2
 params.bwaCPUs = 4
+params.bwaMemory = '7 GB '
 
 // Create a channel for paired-end reads
 
@@ -103,7 +105,7 @@ process indexReference{
 
 process bwaMapping {
     cpus = params.bwaCPUs
-    memory = '7 GB' // for wsl its minimum and maximum memory
+    memory = params.bwaMemory// for wsl its minimum and maximum memory
     input:
     tuple val(id),
     path(trimmedReads_1),
@@ -138,7 +140,7 @@ process bwaMapping {
 }
 
 
-process postAligment {
+process postAligment { // optional process with all post aligment steps in one process
     input:
     tuple val(id), path(mappedBam)
 
@@ -268,7 +270,7 @@ process depth {
     """
     mkdir -p ${params.outdir}/post_aligment
     echo "Generating depth for sample: ${id}"
-    samtools depth -a ${dedupBam} > ${params.outdir}/post_aligment/${id}_depth.txt
+    samtools depth  ${dedupBam} > ${params.outdir}/post_aligment/${id}_depth.txt # flag -a is for all positions (is correct but Cretes unnecessary large files)
     """
 
 }
@@ -291,8 +293,7 @@ process saveMappedReads {
 process saveReads {
     input:
     tuple val(id), 
-    path(dedupBam), 
-    path(dedupIndex)
+    path(dedupBam)
 
     output:
     stdout
@@ -301,7 +302,6 @@ process saveReads {
     mkdir -p ${params.outdir}/post_aligment/reads
     echo "Saving reads for sample: ${id}"
     cp ${dedupBam} ${params.outdir}/post_aligment/reads/${id}_dedup.bam
-    cp ${dedupIndex} ${params.outdir}/post_aligment/reads/${id}_dedup_index.bai
     """
 }
 
@@ -329,12 +329,13 @@ workflow {
     sortedByCoordinateChannel = sortByCoordinate(fixmateChannel)
     dedupChannel = markDuplicates(sortedByCoordinateChannel)
     indexedBamChannel = indexBam(dedupChannel)
-    generateFlagstat(dedupChannel)
-    //generateDepth(dedupChannel)
+    flagstat(dedupChannel)
+    depth(dedupChannel)
     
-    //postAligmentChannel = postAligment(mappedReadsChannel).view()
-    saveMappedReads(mappedReadsChannel)
+    //postAligmentChannel = postAligment(mappedReadsChannel).view() // optional process with all post aligment steps in one process
+    saveMappedReads(mappedReadsChannel).view()
     saveReads(dedupChannel).view()
 
 
 }
+
