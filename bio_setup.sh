@@ -24,6 +24,8 @@ wget -c https://raw.githubusercontent.com/usadellab/Trimmomatic/main/adapters/Tr
 echo "Creating placeholder for polyA adapter..."
 echo ">polyA
 AAAAAAAAAAAAAAAAAAAA" > polyA.fa
+
+cat * > combined_adapters.fa
 cd ..
 
 echo "Setup part 3 complete."
