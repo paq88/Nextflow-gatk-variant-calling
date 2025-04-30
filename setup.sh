@@ -54,7 +54,15 @@ conda config --add channels bioconda
 conda config --set channel_priority strict
 
 
+echo "Creating ngs environment..."
+
+mamba create -y -n ngs -c conda-forge -c bioconda \
+  samtools \
+  fastqc \
+  bwa \
+  trimmomatic \
+  sra-tools
 
 
-echo "Done! Run ' source .bashrc and then conda activate ngs and then  run ./setup_2.sh' to install the NGS tools."
+echo "Done! Run ' source .bashrc and then conda activate ngs"
 
