@@ -64,5 +64,7 @@ mamba create -y -n ngs -c conda-forge -c bioconda \
   sra-tools
 
 
-echo "Done! >> run source .bashrc >> conda activate ngs >> run biosetup.sh"
+echo "Done! Run ' source .bashrc and then conda activate ngs and then  run ./biosetup.sh' to download and prepreocess test data."
+
+
 
