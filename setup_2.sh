@@ -6,5 +6,5 @@ mamba create -y -n ngs -c conda-forge -c bioconda \
   fastqc \
   bwa \
   trimmomatic \
-  seqkit
+  sra-tools
 
