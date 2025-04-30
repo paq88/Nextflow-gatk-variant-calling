@@ -4,6 +4,7 @@ set -e  # Exit on error
 echo "Creating directories..."
 mkdir -p NGS
 cd NGS
+mkdir -p outdir
 mkdir -p data/fastq reference adapters
 
 echo "Downloading test FASTQ files (subset)..."
