@@ -62,8 +62,8 @@ echo "fixing known sites"
  
 bcftools annotate \
   --rename-chrs chr_rename.txt \
-  -Oz -o known_sites/Mills_fixed.vcf.gz \
-  known_sites/Mills_and_1000G_gold_standard.indels.hg38.vcf.gz
+  -Oz -o Mills_fixed.vcf.gz \
+  Mills_and_1000G_gold_standard.indels.hg38.vcf.gz
 
 echo "indexing fixed known sites"
 tabix Mills_fixed.vcf.gz
