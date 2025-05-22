@@ -47,7 +47,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 
 
-echo "Configuring Conda channels for bioinformatics..."
+echo "Configuring Conda channels ..."
 conda config --add channels defaults
 conda config --add channels conda-forge
 conda config --add channels bioconda
@@ -56,22 +56,14 @@ conda config --set channel_priority strict
 
 echo "Creating ngs environment..."
 
-mamba create -y -n ngs -c conda-forge -c bioconda \
-  samtools \
-  fastqc \
-  bwa \
-  trimmomatic \
-  sra-tools \
-  bcftools \
-  gatk4 \
-  r-base \                 
-  r-ggplot2 \
-  r-gplots \
-  r-gsalib \
-  multiqc
 
-echo "Done! Run ' source .bashrc and then conda activate ngs and then  run ./biosetup.sh' to download and prepreocess test data."
 
+mamba create -y -n ngs -c conda-forge -c bioconda   samtools   fastqc   bwa   trimmomatic   sra-tools   bcftools   gatk4   r-base  r-ggplot2 r-gplots r-gsalib multiqc
 
 # for downwloadding known sites from gooogle cloud
 sudo snap install google-cloud-sdk --classic
+echo "Done! Run ' source .bashrc and then mamba activate ngs and then  run ./biosetup.sh' to download and prepreocess test data."
+
+
+
+
