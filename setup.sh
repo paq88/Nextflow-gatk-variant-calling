@@ -61,10 +61,17 @@ mamba create -y -n ngs -c conda-forge -c bioconda \
   fastqc \
   bwa \
   trimmomatic \
-  sra-tools
-
+  sra-tools \
+  bcftools \
+  gatk4 \
+  r-base \                 
+  r-ggplot2 \
+  r-gplots \
+  r-gsalib \
+  multiqc
 
 echo "Done! Run ' source .bashrc and then conda activate ngs and then  run ./biosetup.sh' to download and prepreocess test data."
 
 
-
+# for downwloadding known sites from gooogle cloud
+sudo snap install google-cloud-sdk --classic
