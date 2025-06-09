@@ -329,6 +329,7 @@ process coverage {
 
 // variant calling with bcftools
 process bcfCalling {
+    publishDir "${params.outdir}/debug/bcf", mode: 'copy', overwrite: true
     input:
     tuple val(id), path(dedupBam)
     tuple path(reference), path(refDict), path(refFai)
@@ -347,6 +348,7 @@ process bcfCalling {
 }
 
 process bcfFiltering {
+    publishDir "${params.outdir}/debug/bcf", mode: 'copy', overwrite: true
     input:
     tuple val(id), path(bcf)
 
@@ -359,10 +361,10 @@ process bcfFiltering {
     echo "Filtering variants for sample: ${id}"
     bcftools filter -i 'QUAL >= 0 && DP >= 0' ${bcf} -Ou -o ${id}.filtered.bcf
     # i for include e for exclude 
-    bcftools index -c ${bcf} -o ${id}.filtered.csi
+    bcftools index -c ${id}.filtered.bcf -o ${id}.filtered.csi
     """
 }
-// not used indexing in filtering process
+// not used, indexing in filtering process
 process indexBCF {
     input:
     path(bcf)
@@ -379,7 +381,7 @@ process indexBCF {
 process bcfMerge {
     publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true
     input:
-    val(bcfFiles)
+    val(vcfFiles)
     val(bcfIndexFiles)
 
     output:
@@ -388,7 +390,7 @@ process bcfMerge {
     script:
     """
     bcftools merge \\
-    ${bcfFiles.join(' ')} \\
+    ${vcfFiles.join(' ')} \\
     -O z \\
     -o cohort_bcftools.vcf.gz
 
@@ -508,8 +510,7 @@ process combineGVCF {
     path tbis
 
     output: 
-    path("cohort.g.vcf.gz")
-    path("cohort.g.vcf.gz.tbi")
+    tuple path("cohort.g.vcf.gz"), path("cohort.g.vcf.gz.tbi")
     script:
     """
     gatk CombineGVCFs \\
@@ -527,8 +528,7 @@ process gatkGenotype {
     publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true
     input: 
     tuple path(reference), path(refDict), path(refFai)
-    path cohortGVCF
-    path cohortTBIs
+    tuple path(cohortGVCF) , path(cohortTBIs)
 
     output:
     tuple path("cohort_gatk.vcf.gz"), path("cohort_gatk.vcf.gz.tbi")
@@ -536,13 +536,54 @@ process gatkGenotype {
 
     script:
         """
+        set -x
+        echo "Running GATK GenotypeGVCFs for cohort"
+        echo "Reference: ${reference}"
+        echo "Cohort GVCF: ${cohortGVCF}"
+        
+
         gatk GenotypeGVCFs \\
         -R ${reference} \\
-        -V cohort.g.vcf.gz \\
-        -O cohort_gatk.vcf.gz
+        -V ${cohortGVCF} \\
+        -O cohort_gatk.vcf.gz 
+        
 
         gatk IndexFeatureFile -I cohort_gatk.vcf.gz
         """
+}   
+
+
+process gatkHardFilterVariants {
+    publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true 
+    input:
+    tuple path(reference), path(refDict), path(refFai)
+    tuple path(cohortVCF), path(cohortVCFxTBI)
+
+    output:
+    path ("cohort_gatk_filtered.vcf.gz")
+    
+
+   script:
+        """
+        gatk VariantFiltration \\
+        -R ${reference} \\
+        -V ${cohortVCF} \\
+        -O cohort_gatk_filter_tag.vcf.gz \\
+        --filter-name "QD_lt2" --filter-expression "QD < 2.0" \\
+        --filter-name "FS_gt60" --filter-expression "FS > 60.0" \\
+        --filter-name "MQ_lt40" --filter-expression "MQ < 40.0" \\
+        --filter-name "MQRankSum_lt-12.5" --filter-expression "MQRankSum < -12.5" \\
+        --filter-name "ReadPosRankSum_lt-8.0" --filter-expression "ReadPosRankSum < -8.0"
+
+        gatk SelectVariants \\
+        -R ${reference} \\
+        -V cohort_gatk_filter_tag.vcf.gz \\
+        -O cohort_gatk_filtered.vcf.gz \\
+        --exclude-filtered
+        """
+
+
+
 }
 
 // vcf evaluation  
@@ -702,22 +743,22 @@ process saveGenotypedVCF {
 workflow {
     //referenceChannel = Channel.fromPath(params.reference, checkIfExists: true).view()
 
-    readsChannel             = Channel.fromFilePairs(params.reads, checkIfExists: true).view()
+    readsChannel             = Channel.fromFilePairs(params.reads, checkIfExists: true)
     referenceGATKChannel     = prepareReferenceGATK(params.reference)
-    knownSitesChannel        = Channel.fromPath(params.knownSites, checkIfExists: true).view()
+    knownSitesChannel        = Channel.fromPath(params.knownSites, checkIfExists: true)
 
     //QC before trimming
     qcBeforeChannel   = qcBefore(readsChannel).collect().set { allQcBefore }
     multiqcBefore(allQcBefore)
 
     //trimming
-    trimmedReadsChannel = trimReads(readsChannel).view()
+    trimmedReadsChannel = trimReads(readsChannel)
 
     //fastQC after trimming 
     qcAfterChannel      = qcAfter(trimmedReadsChannel).collect().set { allQcAfter }
 
     // bwa mapping
-    mappedReadsChannel  = bwaMapping(trimmedReadsChannel).view()
+    mappedReadsChannel  = bwaMapping(trimmedReadsChannel)
 
     // post aligment steps
     sortedByQueryNameChannel  = sortByQueryName(mappedReadsChannel)
@@ -741,16 +782,13 @@ workflow {
     mergedBcfChannel   = bcfMerge(allBcf, allBcfIndex)
     
     // GATK BQSR
-    gatkBQSRChannel = gatkBQSR(dedupChannel, referenceGATKChannel, params.knownSites).view() 
+    gatkBQSRChannel = gatkBQSR(dedupChannel, referenceGATKChannel, params.knownSites)
     multiqcBQSRChannel = gatkBQSRChannel.map { id, bqsrBam, bqsrBai, covariatesPdf, preTable, afterTable ->
                                                     tuple(covariatesPdf, preTable, afterTable)
                                                         }.collect().set { allBQSR }
 
-    
-
-
     // GATK variant calling - haplotype caller
-    gatkCalledChannel = gatkHaplotypeCaller(gatkBQSRChannel, referenceGATKChannel).view()
+    gatkCalledChannel = gatkHaplotypeCaller(gatkBQSRChannel, referenceGATKChannel)
     // index gvcf
     indexedGVCFChannel = indexGVCF(gatkCalledChannel)
     // collect all gvcfs and index files for them wait for all of them to finish
@@ -761,9 +799,11 @@ workflow {
 
     //indexedGVCFChannel.map { [it[1], it[2]] }.flatten().collect().set { allGVCFs }
 
-    cohortChannel = combineGVCF(referenceGATKChannel, allGVCFs, allTBIs)
+    cohortChannel = combineGVCF(referenceGATKChannel, allGVCFs, allTBIs).view()
 
     genotypedChannel = gatkGenotype(referenceGATKChannel, cohortChannel).view()
+
+    filteredVCFChannel = gatkHardFilterVariants(referenceGATKChannel, genotypedChannel)
 
     // GATK evaluation
     gatkEvalChannel = gatkEvalGATK(genotypedChannel, referenceGATKChannel)
