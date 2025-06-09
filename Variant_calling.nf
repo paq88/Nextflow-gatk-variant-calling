@@ -1,26 +1,23 @@
 #!/usr/bin/env nextflow
 
-// Define the working directory
+//// Input parameters ////
+// working directories
 params.workDir = '/home/paq/NGS/NGS'
 params.outdir  = '/home/paq/NGS/NGS/outdir'
 
-// Define input files (paired-end reads)
-
+//  data directories
 params.reference = "${params.workDir}/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
-
-
 params.adapters = "${params.workDir}/adapters/combined_adapters.fa"
 params.reads = "${params.workDir}/data/*_{1,2}.fastq.gz"
 params.knownSites = "${params.workDir}/known_sites/Mills_fixed.vcf.gz"
 
+// computational resources
 params.trimCPUs = 2
 params.bwaCPUs = 4
 params.gatkCPUs = 4
 params.bwaMemory = '7 GB '
 
-// Create a channel for paired-end reads
-
-
+//// Quality controll and preprocessing ////
 // data quality control
 process qcBefore {
     publishDir "${params.outdir}/qc/before_trimming/fastqc", mode: 'copy', overwrite: true
@@ -171,7 +168,7 @@ process indexReference{
     # bwa index ${reference}
     """
 }
-
+//// Genome mapping ////
 // bwa mapping
 process bwaMapping {
     cpus = params.bwaCPUs
@@ -209,7 +206,7 @@ process bwaMapping {
 
 }
 
-// post aligment steps
+//// post aligment steps ////
 process sortByQueryName {
     input:
     tuple val(id), path(mappedBam)
@@ -330,7 +327,7 @@ process coverage {
     samtools coverage ${dedupBam} -o ${id}_coverage.txt
     """
 }
-
+//// Variant calling ////
 // variant calling with bcftools
 process bcfCalling {
     publishDir "${params.outdir}/debug/bcf", mode: 'copy', overwrite: true
@@ -351,6 +348,7 @@ process bcfCalling {
     """
 }
 
+// Filtering variants with bcftools (sample level)
 process bcfFiltering {
     publishDir "${params.outdir}/debug/bcf", mode: 'copy', overwrite: true
     input:
@@ -363,7 +361,22 @@ process bcfFiltering {
     script:
     """
     echo "Filtering variants for sample: ${id}"
-    bcftools filter -i 'QUAL >= 0 && DP >= 0' ${bcf} -Ou -o ${id}.filtered.bcf
+
+    bcftools filter -i ' 
+    QUAL >= 30 && QUAL <= 1000 && 
+    DP >= 10 && DP <= 1000 && 
+    MQ >= 40 && 
+    MQ0F <= 0.1 && 
+    VDB > 0.01 && 
+    RPBZ >= -3 && RPBZ <= 3 && 
+    MQBZ >= -3 && MQBZ <= 3 &&
+    BQBZ >= -3 && BQBZ <= 3 && 
+    MQSBZ >= -3 && MQSBZ <= 3 && 
+    SCBZ >= -3 && SCBZ <= 3 ' \\
+    -Ou \\
+    -o ${id}.filtered.bcf \\
+    ${bcf}
+
     # i for include e for exclude 
     bcftools index -c ${id}.filtered.bcf -o ${id}.filtered.csi
     """
@@ -377,7 +390,7 @@ process bcfMerge {
     val(bcfIndexFiles)
 
     output:
-    tuple path("cohort_bcftools.vcf.gz"), path("cohort_bcftools.vcf.gz.tbi")
+    tuple path("cohort_bcftools_filtered.vcf.gz"), path("cohort_bcftools_filtered.vcf.gz.tbi")
 
     script:
     """
@@ -386,7 +399,7 @@ process bcfMerge {
     -O z \\
     -o cohort_bcftools.vcf.gz
 
-    gatk IndexFeatureFile -I cohort_bcftools.vcf.gz
+    gatk IndexFeatureFile -I cohort_bcftools_filtered.vcf.gz
     """
 }
 
@@ -517,10 +530,10 @@ process combineGVCF {
 }
 
 process gatkGenotype {
-    publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true
+    //publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true
     input: 
-    tuple path(reference), path(refDict), path(refFai)
-    tuple path(cohortGVCF) , path(cohortTBIs)
+    tuple path(reference),  path(refDict),   path(refFai)
+    tuple path(cohortGVCF), path(cohortTBIs)
 
     output:
     tuple path("cohort_gatk.vcf.gz"), path("cohort_gatk.vcf.gz.tbi")
@@ -528,23 +541,16 @@ process gatkGenotype {
 
     script:
         """
-        set -x
-        echo "Running GATK GenotypeGVCFs for cohort"
-        echo "Reference: ${reference}"
-        echo "Cohort GVCF: ${cohortGVCF}"
-        
-
         gatk GenotypeGVCFs \\
         -R ${reference} \\
         -V ${cohortGVCF} \\
         -O cohort_gatk.vcf.gz 
         
-
         gatk IndexFeatureFile -I cohort_gatk.vcf.gz
         """
 }   
 
-
+// Filtering variants with GATK hard filters (cohort level)
 process gatkHardFilterVariants {
     publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true 
     input:
@@ -563,9 +569,12 @@ process gatkHardFilterVariants {
         -O cohort_gatk_filter_tag.vcf.gz \\
         --filter-name "QD_lt2" --filter-expression "QD < 2.0" \\
         --filter-name "FS_gt60" --filter-expression "FS > 60.0" \\
+        --filter-name "SOR_gt3.0" --filter-expression "SOR > 3.0" \\
         --filter-name "MQ_lt40" --filter-expression "MQ < 40.0" \\
         --filter-name "MQRankSum_lt-12.5" --filter-expression "MQRankSum < -12.5" \\
-        --filter-name "ReadPosRankSum_lt-8.0" --filter-expression "ReadPosRankSum < -8.0"
+        --filter-name "ReadPosRankSum_lt-8.0" --filter-expression "ReadPosRankSum < -8.0" \\
+        --filter-name "BaseQRankSum_extreme" --filter-expression "BaseQRankSum < -8.0" \\
+        --filter-name "DP_out_of_range" --filter-expression "DP < 10 || DP > 1000" 
 
         gatk SelectVariants \\
         -R ${reference} \\
@@ -579,6 +588,8 @@ process gatkHardFilterVariants {
 
 
 }
+
+//// Variant evaluation ////
 
 // vcf evaluation  
 process gatkEvalGATK {
@@ -612,7 +623,7 @@ process gatkEvalBCF {
     gatk VariantEval -eval ${vcf} -R ${reference} -O cohort_BCF_eval.txt
     """
 }
-// optional bcf stats
+// bcf stats
 process bcfStatsGATK {
     publishDir "${params.outdir}/qc/vcf_eval", mode: 'copy', overwrite: true
     input:
@@ -647,7 +658,7 @@ process bcfStatsBCF{
 
 
 
-// saving results
+//// saving results ////
 process saveBQSRPDF {
     publishDir "${params.outdir}/qc/bqsr_covariates", mode: 'copy', overwrite: true
     input: 
@@ -753,22 +764,22 @@ process saveGenotypedVCF {
 workflow {
     //referenceChannel = Channel.fromPath(params.reference, checkIfExists: true).view()
 
-    readsChannel             = Channel.fromFilePairs(params.reads, checkIfExists: true)
-    referenceGATKChannel     = prepareReferenceGATK(params.reference)
-    knownSitesChannel        = Channel.fromPath(params.knownSites, checkIfExists: true)
+    readsChannel              = Channel.fromFilePairs(params.reads, checkIfExists: true)
+    referenceGATKChannel      = prepareReferenceGATK(params.reference)
+    knownSitesChannel         = Channel.fromPath(params.knownSites, checkIfExists: true)
 
     //QC before trimming
-    qcBeforeChannel   = qcBefore(readsChannel).collect().set { allQcBefore }
+    qcBeforeChannel           = qcBefore(readsChannel).collect().set { allQcBefore }
     multiqcBefore(allQcBefore)
 
     //trimming
-    trimmedReadsChannel = trimReads(readsChannel)
+    trimmedReadsChannel       = trimReads(readsChannel)
 
     //fastQC after trimming 
-    qcAfterChannel      = qcAfter(trimmedReadsChannel).collect().set { allQcAfter }
+    qcAfterChannel            = qcAfter(trimmedReadsChannel).collect().set { allQcAfter }
 
     // bwa mapping
-    mappedReadsChannel  = bwaMapping(trimmedReadsChannel)
+    mappedReadsChannel        = bwaMapping(trimmedReadsChannel)
 
     // post aligment steps
     sortedByQueryNameChannel  = sortByQueryName(mappedReadsChannel)
@@ -778,29 +789,29 @@ workflow {
     indexedBamChannel         = indexBam(dedupChannel)
 
     // stats for deduplicated bam files
-    flagstatChannel = flagstat(dedupChannel).collect().set { allFlagstat }
-    depthChannel    = depth(dedupChannel)
-    coverageChannel = coverage(dedupChannel).collect().set { allCoverage }
+    flagstatChannel           = flagstat(dedupChannel).collect().set { allFlagstat }
+    depthChannel              = depth(dedupChannel)
+    coverageChannel           = coverage(dedupChannel).collect().set { allCoverage }
 
 
     // variant calling bcf 
-    bcfCalledChannel   = bcfCalling(dedupChannel,referenceGATKChannel)
-    filteredBcfChannel = bcfFiltering(bcfCalledChannel)
+    bcfCalledChannel          = bcfCalling(dedupChannel,referenceGATKChannel)
+    filteredBcfChannel        = bcfFiltering(bcfCalledChannel)
     filteredBcfChannel.map { it[0] }.collect().set{ allBcf }
     filteredBcfChannel.map { it[1] }.collect().set{ allBcfIndex }
 
-    mergedBcfChannel   = bcfMerge(allBcf, allBcfIndex)
+    mergedBcfChannel          = bcfMerge(allBcf, allBcfIndex)
     
     // GATK BQSR
-    gatkBQSRChannel = gatkBQSR(dedupChannel, referenceGATKChannel, params.knownSites)
-    multiqcBQSRChannel = gatkBQSRChannel.map { id, bqsrBam, bqsrBai, covariatesPdf, preTable, afterTable ->
+    gatkBQSRChannel           = gatkBQSR(dedupChannel, referenceGATKChannel, params.knownSites)
+    multiqcBQSRChannel        = gatkBQSRChannel.map { id, bqsrBam, bqsrBai, covariatesPdf, preTable, afterTable ->
                                                     tuple(covariatesPdf, preTable, afterTable)
                                                         }.collect().set { allBQSR }
 
     // GATK variant calling - haplotype caller
-    gatkCalledChannel = gatkHaplotypeCaller(gatkBQSRChannel, referenceGATKChannel)
+    gatkCalledChannel         = gatkHaplotypeCaller(gatkBQSRChannel, referenceGATKChannel)
     // index gvcf
-    indexedGVCFChannel = indexGVCF(gatkCalledChannel)
+    indexedGVCFChannel        = indexGVCF(gatkCalledChannel)
     // collect all gvcfs and index files for them wait for all of them to finish
     // collect gvcf files
     indexedGVCFChannel.map { it [1] }.collect().set{ allGVCFs }
@@ -809,23 +820,18 @@ workflow {
 
     //indexedGVCFChannel.map { [it[1], it[2]] }.flatten().collect().set { allGVCFs }
 
-    cohortChannel = combineGVCF(referenceGATKChannel, allGVCFs, allTBIs).view()
-
-    genotypedChannel = gatkGenotype(referenceGATKChannel, cohortChannel).view()
-
-    filteredVCFChannel = gatkHardFilterVariants(referenceGATKChannel, genotypedChannel)
+    cohortChannel             = combineGVCF(referenceGATKChannel, allGVCFs, allTBIs)
+    genotypedChannel          = gatkGenotype(referenceGATKChannel, cohortChannel)
+    filteredVCFChannel        = gatkHardFilterVariants(referenceGATKChannel, genotypedChannel)
 
     // GATK evaluation
-    evalGatkChannel = gatkEvalGATK(filteredVCFChannel, referenceGATKChannel)
-    evalBcfChannel  = gatkEvalBCF(mergedBcfChannel, referenceGATKChannel)
+    evalGatkChannel           = gatkEvalGATK(filteredVCFChannel, referenceGATKChannel)
+    evalBcfChannel            = gatkEvalBCF(mergedBcfChannel, referenceGATKChannel)
 
-    // optional bcf stats
-    bcfStatsChannelBCF = bcfStatsBCF(mergedBcfChannel)
-    bcfStatsChannelGATK = bcfStatsGATK(filteredVCFChannel)
+    // bcf stats
+    bcfStatsChannelBCF        = bcfStatsBCF(mergedBcfChannel)
+    bcfStatsChannelGATK       = bcfStatsGATK(filteredVCFChannel)
     
-
-
-
     // downstream multiqc
     multiqcAfter(allQcAfter, allFlagstat, allCoverage, allBQSR, evalGatkChannel, evalBcfChannel, bcfStatsChannelGATK, bcfStatsChannelBCF)
 
