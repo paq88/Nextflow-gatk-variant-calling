@@ -94,6 +94,8 @@ process multiqcAfter {
     val(allBQSR)
     path(gatkEvalGATK)
     path(gatkEvalBCF)
+    path(bcfStatsGatk)
+    path(bcfStatsBCF)
 
 
     output:
@@ -109,6 +111,8 @@ process multiqcAfter {
     ${allBQSR.join(' ')} \\
     ${gatkEvalGATK} \\
     ${gatkEvalBCF} \\
+    ${bcfStatsGatk} \\
+    ${bcfStatsBCF} \\
     --outdir ./ \\
     --zip-data-dir \\
     --force || true 
@@ -151,7 +155,7 @@ process trimReads {
     """
 }
 
-// optional process for indexing the reference genome
+// optional process for indexing the reference genome using BWA index
 process indexReference{
     input:
     path reference
@@ -364,19 +368,7 @@ process bcfFiltering {
     bcftools index -c ${id}.filtered.bcf -o ${id}.filtered.csi
     """
 }
-// not used, indexing in filtering process
-process indexBCF {
-    input:
-    path(bcf)
 
-    output:
-    path("${bcf}.csi")
-
-    script:
-    """
-    bcftools index -c ${bcf}
-    """
-}
 
 process bcfMerge {
     publishDir "${params.outdir}/vcf", mode: 'copy', overwrite: true
@@ -560,7 +552,7 @@ process gatkHardFilterVariants {
     tuple path(cohortVCF), path(cohortVCFxTBI)
 
     output:
-    path ("cohort_gatk_filtered.vcf.gz")
+    tuple path("cohort_gatk_filtered.vcf.gz"), path("cohort_gatk_filtered.vcf.gz.tbi")
     
 
    script:
@@ -580,6 +572,8 @@ process gatkHardFilterVariants {
         -V cohort_gatk_filter_tag.vcf.gz \\
         -O cohort_gatk_filtered.vcf.gz \\
         --exclude-filtered
+
+        gatk IndexFeatureFile -I cohort_gatk_filtered.vcf.gz
         """
 
 
@@ -619,21 +613,37 @@ process gatkEvalBCF {
     """
 }
 // optional bcf stats
-process bcfStats {
+process bcfStatsGATK {
+    publishDir "${params.outdir}/qc/vcf_eval", mode: 'copy', overwrite: true
+    input:
+    tuple path(vcf), path(vcfTbi)
+    
+
+    output:
+    path("cohort_gatk.stats")
+
+    script:
+    """
+    echo "Generating BCF stats for VCF file: ${vcf}"
+    bcftools stats ${vcf} > cohort_gatk.stats
+    """
+}
+
+process bcfStatsBCF{
     publishDir "${params.outdir}/qc/vcf_eval", mode: 'copy', overwrite: true
     input:
     tuple path(vcf), path(vcfTbi)
 
     output:
-    path("cohort_bcf_stats.txt")
+    path("cohort_bcf.stats")
 
     script:
     """
-    ls
     echo "Generating BCF stats for VCF file: ${vcf}"
-    bcftools stats ${vcf} > cohort_bcf_stats.txt
+    bcftools stats ${vcf} > cohort_bcf.stats
     """
 }
+
 
 
 
@@ -806,16 +816,18 @@ workflow {
     filteredVCFChannel = gatkHardFilterVariants(referenceGATKChannel, genotypedChannel)
 
     // GATK evaluation
-    gatkEvalChannel = gatkEvalGATK(genotypedChannel, referenceGATKChannel)
-    bcfEvalChannel  = gatkEvalBCF(mergedBcfChannel, referenceGATKChannel)
+    evalGatkChannel = gatkEvalGATK(filteredVCFChannel, referenceGATKChannel)
+    evalBcfChannel  = gatkEvalBCF(mergedBcfChannel, referenceGATKChannel)
 
     // optional bcf stats
-    //bcfStatsChannelBCF = bcfStats(mergedBcfChannel)
-    //bcfStatsChannelGATK = bcfStats(genotypedChannel)
+    bcfStatsChannelBCF = bcfStatsBCF(mergedBcfChannel)
+    bcfStatsChannelGATK = bcfStatsGATK(filteredVCFChannel)
+    
+
 
 
     // downstream multiqc
-    multiqcAfter(allQcAfter, allFlagstat, allCoverage, allBQSR, gatkEvalChannel, bcfEvalChannel)
+    multiqcAfter(allQcAfter, allFlagstat, allCoverage, allBQSR, evalGatkChannel, evalBcfChannel, bcfStatsChannelGATK, bcfStatsChannelBCF)
 
     //save results
     saveBQSRPDF(gatkBQSRChannel)
