@@ -397,7 +397,7 @@ process bcfMerge {
     bcftools merge \\
     ${vcfFiles.join(' ')} \\
     -O z \\
-    -o cohort_bcftools.vcf.gz
+    -o cohort_bcftools_filtered.vcf.gz
 
     gatk IndexFeatureFile -I cohort_bcftools_filtered.vcf.gz
     """
@@ -838,4 +838,5 @@ workflow {
     //save results
     saveBQSRPDF(gatkBQSRChannel)
 }
+
 
