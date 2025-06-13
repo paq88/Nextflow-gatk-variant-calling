@@ -2,8 +2,8 @@
 
 //// Input parameters ////
 // working directories
-params.workDir = '/home/paq/NGS/NGS'
-params.outdir  = '/home/paq/NGS/NGS/outdir'
+params.workDir = ''
+params.outdir  = ''
 
 //  data directories
 params.reference = "${params.workDir}/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
