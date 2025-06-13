@@ -7,6 +7,7 @@ Includes:
 - post aligment (Samtools)
 - Variant Calling (BCFTools, GATK)
 - Various statistics parsed into MultiQC raport
+
 You can view pipeline diagram [here](https://github.com/paq88/Nextflow-gatk-variant-calling/blob/main/pipeline.pdf)
 
 
