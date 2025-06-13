@@ -30,7 +30,7 @@ if you prefere automated setup
 `sudo ./setup.sh`
 >>
 `source .bashrc`
->> next you have to activate this enviroment:
+next you have to activate this enviroment:
  `mamba activate ngs`
 
 If you'd like you can download test data for this pipeline, this script will download two human samples (only 1 000 000 bp each), human reference genome, index reference using bwa index, illumina adapters and it'll create directory structure. 
